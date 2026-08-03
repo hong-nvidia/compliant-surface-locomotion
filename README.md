@@ -62,4 +62,7 @@ You should see `OK` lines for `isaaclab`, `isaaclab_newton`, and `isaaclab_rl`.
 
 ```bash
 uv run python scripts/verify_isaaclab.py
+
+# Stand ANYmal-C under a joint-space PD controller, shown in the Newton viewer
+uv run python scripts/view_anymal.py
 ```

@@ -12,9 +12,7 @@ uv.lock.bak
 # Isaac Lab / sim caches
 logs/
 outputs/
-*.usd
-*.usda
-*.usdc
+.warp-cache/
 
 # Editors / OS
 .idea/
@@ -26,3 +24,6 @@ outputs/
 wandb/
 runs/
 checkpoints/
+
+# Newton
+imgui.ini
