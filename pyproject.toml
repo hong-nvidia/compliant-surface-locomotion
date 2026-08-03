@@ -1,0 +1,15 @@
+[project]
+name = "compliant-surface-locomotion"
+version = "0.1.0"
+description = "Training and research scripts for compliant-surface locomotion on Isaac Lab (kit-less / Newton)."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = []
+
+[tool.uv]
+# Application / scripts repo for now — no installable package yet.
+# Isaac Lab is installed separately into this environment (see README).
+package = false
