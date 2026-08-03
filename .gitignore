@@ -1,0 +1,28 @@
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+uv.lock.bak
+
+# Isaac Lab / sim caches
+logs/
+outputs/
+*.usd
+*.usda
+*.usdc
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Experiment artifacts
+wandb/
+runs/
+checkpoints/
