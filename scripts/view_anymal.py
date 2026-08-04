@@ -278,6 +278,32 @@ def report(step: int, robot: Articulation, gravel: MPMObject) -> None:
     )
 
 
+def reset_episode(robot: Articulation, gravel: MPMObject) -> None:
+    """Restore the robot and gravel to their spawn state (viewer Reset Episode).
+
+    ``sim.reset()`` reinitializes the solvers and is the wrong lever here: the OpenGL
+    button only sets a flag, and Isaac Lab RL envs consume it by rewriting asset state.
+    Env origins match the ``Env_{i}`` Xforms in :func:`design_scene`.
+    """
+    origins = torch.zeros((robot.num_instances, 3), device=robot.device)
+    origins[:, 0] = torch.arange(robot.num_instances, device=robot.device, dtype=origins.dtype) * 2.0
+
+    root_pose = robot.data.default_root_pose.torch.clone()
+    root_pose[:, :3] += origins
+    robot.write_root_pose_to_sim_index(root_pose=root_pose)
+    robot.write_root_velocity_to_sim_index(root_velocity=robot.data.default_root_vel.torch.clone())
+
+    joint_pos = robot.data.default_joint_pos.torch.clone()
+    joint_vel = robot.data.default_joint_vel.torch.clone()
+    robot.write_joint_position_to_sim_index(position=joint_pos)
+    robot.write_joint_velocity_to_sim_index(velocity=joint_vel)
+    robot.set_joint_position_target_index(target=joint_pos)
+    robot.set_joint_velocity_target_index(target=joint_vel)
+    robot.reset()
+
+    gravel.reset()
+
+
 def run_simulator(sim: SimulationContext, robot: Articulation, gravel: MPMObject) -> None:
     """Hold the default standing pose for as long as the viewer (or step budget) lasts."""
     stand_pose = robot.data.default_joint_pos.torch.clone()
@@ -289,6 +315,14 @@ def run_simulator(sim: SimulationContext, robot: Articulation, gravel: MPMObject
             break
         if sim.visualizers and not any(viz.is_running() and not viz.is_closed for viz in sim.visualizers):
             break
+
+        if sim.consume_reset_request():
+            reset_episode(robot, gravel)
+            robot.update(PHYSICS_DT)
+            gravel.update(PHYSICS_DT)
+            step = 0
+            print("[INFO]: Episode reset from viewer.")
+            report(0, robot, gravel)
 
         if not args_cli.passive:
             robot.set_joint_position_target_index(target=stand_pose)
