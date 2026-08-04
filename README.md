@@ -65,6 +65,9 @@ You should see `OK` lines for `isaaclab`, `isaaclab_newton`, and `isaaclab_rl`.
 ```bash
 uv run python scripts/verify_isaaclab.py
 
-# Stand ANYmal-C under a joint-space PD controller, shown in the Newton viewer
+# ANYmal-C under a joint-space PD controller on an MPM gravel bed, in the Newton viewer
 uv run python scripts/view_anymal.py
+
+# Headless smoke run that prints base height, foot heights, and the gravel surface
+uv run python scripts/view_anymal.py --no-viewer --steps 400
 ```
