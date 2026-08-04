@@ -23,14 +23,12 @@ from isaaclab_newton.sim.spawners.mpm import MPMParticleMaterialCfg
 ROBOT_BODY_PATTERN = r"/World/Env_.*/Robot"
 """Regex over full Newton body labels selecting the bodies owned by the rigid solver."""
 
-GROUND_SHAPE_PATTERN = r"/World/defaultGroundPlane/.*"
-"""Static shapes owned by the rigid solver, so the robot cannot fall through the world."""
+FLOOR_SHAPE_PATTERN = r"/World/Env_.*/Floor.*"
+"""Static shapes owned by the rigid solver, so the robot cannot fall through the world.
 
-GRAVEL_FLOOR_SHAPE_PATTERN = r"/World/Env_.*/GravelFloor.*"
-"""Static shapes owned by the MPM solver, so the bed has something to rest on.
-
-The two solvers need separate floors because an entry owns a shape exclusively,
-and ``include_static_shapes`` is all-or-nothing.
+Ownership only decides which solver sees a shape as a *rigid* collider. The MPM solver
+collides its particles against every shape in the model regardless, which is why this one
+floor also holds the bed up and no second slab is needed.
 """
 
 FOOT_BODY_PATTERN = r"/World/Env_.*/Robot/.*(SHANK|FOOT)"
@@ -183,7 +181,7 @@ def gravel_physics_cfg(
                     use_mujoco_contacts=mujoco_contacts,
                 ),
                 bodies=[rigid_bodies],
-                shape_label_patterns=[GROUND_SHAPE_PATTERN],
+                shape_label_patterns=[FLOOR_SHAPE_PATTERN],
                 substeps=rigid_substeps,
             ),
             CouplerEntryCfg(
@@ -208,7 +206,11 @@ def gravel_physics_cfg(
                 all_particles=True,
                 # The coupler rejects MPM entries that do not step in place.
                 in_place=True,
-                shape_label_patterns=[GRAVEL_FLOOR_SHAPE_PATTERN],
+                # No shapes: the MPM solver collides particles against the model's shapes
+                # regardless of entry ownership, so the scene's single floor already holds
+                # the bed up. Newton's coupled example declares no shapes here either, and
+                # a shape cannot be listed twice -- naming the floor on both entries fails
+                # with "Index 0 is owned by more than one coupled solver entry".
             ),
         ],
         proxies=[

@@ -48,7 +48,7 @@ parser.add_argument(
     default=0,
     help="Stop after this many physics steps. 0 runs until the viewer is closed (or Ctrl-C).",
 )
-parser.add_argument("--gravel-depth", type=float, default=0.2, help="Thickness of the gravel bed [m].")
+parser.add_argument("--gravel-depth", type=float, default=0.1, help="Thickness of the gravel bed [m].")
 parser.add_argument(
     "--gravel-size",
     type=float,
@@ -158,7 +158,7 @@ from isaaclab_assets.robots.anymal import ANYDRIVE_3_SIMPLE_ACTUATOR_CFG, ANYMAL
 
 PHYSICS_DT = args_cli.dt
 PARTICLE_COLOR = (0.55, 0.50, 0.45)
-GRAVEL_FLOOR_THICKNESS = 0.1
+FLOOR_THICKNESS = 0.1
 
 # Base height ANYmal-C spawns at over flat ground; the gravel bed raises it.
 FLAT_GROUND_BASE_HEIGHT = ANYMAL_C_CFG.init_state.pos[2]
@@ -193,10 +193,7 @@ else:
 
 
 def design_scene() -> tuple[Articulation, MPMObject]:
-    """Spawn a ground plane, a light, the gravel beds, and the ANYmal-C robots."""
-    ground_cfg = sim_utils.GroundPlaneCfg()
-    ground_cfg.func("/World/defaultGroundPlane", ground_cfg)
-
+    """Spawn a light, the floors, the gravel beds, and the ANYmal-C robots."""
     light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
     light_cfg.func("/World/Light", light_cfg)
 
@@ -205,20 +202,23 @@ def design_scene() -> tuple[Articulation, MPMObject]:
 
     half_x, half_y = 0.5 * args_cli.gravel_size[0], 0.5 * args_cli.gravel_size[1]
 
-    # The MPM bed and the robot need separate floors, because the coupler gives each
-    # static shape to exactly one solver. This slab is the bed's floor; the robot keeps
-    # the ground plane so a bed that fails to hold it cannot drop it out of the world.
+    # One explicit floor per bed, in place of Isaac Lab's infinite ground plane. Its top
+    # face is at z=0, which is where the bed's lowest particles sit.
+    #
+    # A single floor serves both solvers even though a shape can belong to only one
+    # coupler entry: entry ownership decides which solver treats it as a rigid collider,
+    # while the MPM solver picks up every shape in the model as a particle collider
+    # regardless. So this slab is listed on the robot's entry, and the bed rests on it
+    # too. Without it the bed has nothing underneath and free-falls, taking the robot
+    # standing on it along.
     floor_cfg = sim_utils.CuboidCfg(
-        size=(2.0 * half_x + 0.4, 2.0 * half_y + 0.4, GRAVEL_FLOOR_THICKNESS),
+        size=(2.0 * half_x + 0.4, 2.0 * half_y + 0.4, FLOOR_THICKNESS),
         collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
         physics_material=sim_utils.NewtonMaterialPropertiesCfg(static_friction=0.9, dynamic_friction=0.9),
+        visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.25, 0.25, 0.28)),
     )
     for i in range(args_cli.num_envs):
-        floor_cfg.func(
-            f"/World/Env_{i}/GravelFloor",
-            floor_cfg,
-            translation=(0.0, 0.0, -0.5 * GRAVEL_FLOOR_THICKNESS),
-        )
+        floor_cfg.func(f"/World/Env_{i}/Floor", floor_cfg, translation=(0.0, 0.0, -0.5 * FLOOR_THICKNESS))
 
     gravel_cfg = MPMObjectCfg(
         prim_path="/World/Env_.*/Gravel",
