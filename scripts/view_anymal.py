@@ -48,14 +48,14 @@ parser.add_argument(
     default=0,
     help="Stop after this many physics steps. 0 runs until the viewer is closed (or Ctrl-C).",
 )
-parser.add_argument("--gravel-depth", type=float, default=0.2, help="Thickness of the gravel bed [m].")
+parser.add_argument("--gravel-depth", type=float, default=0.05, help="Thickness of the gravel bed [m].")
 parser.add_argument(
     "--gravel-size",
     type=float,
     nargs=2,
-    default=(1.4, 0.9),
+    default=(3.0, 0.9),
     metavar=("X", "Y"),
-    help="Horizontal extent of the gravel bed [m].",
+    help="Horizontal extent of the gravel walkway [m] (length along X, width along Y).",
 )
 parser.add_argument("--voxel-size", type=float, default=0.03, help="MPM grid voxel size [m].")
 parser.add_argument(
@@ -160,10 +160,15 @@ PHYSICS_DT = args_cli.dt
 PARTICLE_COLOR = (0.55, 0.50, 0.45)
 FLOOR_THICKNESS = 0.1
 BORDER_THICKNESS = 0.05
+# Space parallel walkways so neighbouring floors and borders do not overlap.
+ENV_SPACING = args_cli.gravel_size[0] + 1.0
 
 # Base height ANYmal-C spawns at over flat ground; the gravel bed raises it.
 FLAT_GROUND_BASE_HEIGHT = ANYMAL_C_CFG.init_state.pos[2]
 SPAWN_HEIGHT = FLAT_GROUND_BASE_HEIGHT + args_cli.gravel_depth + args_cli.spawn_clearance
+# Place the robot near the -X end of the walkway, clear of the rear wall, facing +X.
+WALKWAY_SPAWN_CLEARANCE = 0.6
+SPAWN_X = -0.5 * args_cli.gravel_size[0] + WALKWAY_SPAWN_CLEARANCE
 
 # The analytic ANYdrive model replaces the LSTM actuator net of ANYMAL_C_CFG: a plain
 # PD-with-torque-limit controller, which is what a conventional (non-learned) stack uses.
@@ -199,7 +204,7 @@ def design_scene() -> tuple[Articulation, MPMObject]:
     light_cfg.func("/World/Light", light_cfg)
 
     for i in range(args_cli.num_envs):
-        sim_utils.create_prim(f"/World/Env_{i}", "Xform", translation=(i * 2.0, 0.0, 0.0))
+        sim_utils.create_prim(f"/World/Env_{i}", "Xform", translation=(i * ENV_SPACING, 0.0, 0.0))
 
     half_x, half_y = 0.5 * args_cli.gravel_size[0], 0.5 * args_cli.gravel_size[1]
 
@@ -273,7 +278,7 @@ def design_scene() -> tuple[Articulation, MPMObject]:
     robot_cfg = ANYMAL_C_CFG.replace(
         prim_path="/World/Env_.*/Robot",
         actuators={"legs": STAND_ACTUATOR_CFG},
-        init_state=ANYMAL_C_CFG.init_state.replace(pos=(0.0, 0.0, SPAWN_HEIGHT)),
+        init_state=ANYMAL_C_CFG.init_state.replace(pos=(SPAWN_X, 0.0, SPAWN_HEIGHT)),
     )
     return Articulation(robot_cfg), MPMObject(gravel_cfg)
 
@@ -316,7 +321,7 @@ def reset_episode(robot: Articulation, gravel: MPMObject) -> None:
     Env origins match the ``Env_{i}`` Xforms in :func:`design_scene`.
     """
     origins = torch.zeros((robot.num_instances, 3), device=robot.device)
-    origins[:, 0] = torch.arange(robot.num_instances, device=robot.device, dtype=origins.dtype) * 2.0
+    origins[:, 0] = torch.arange(robot.num_instances, device=robot.device, dtype=origins.dtype) * ENV_SPACING
 
     root_pose = robot.data.default_root_pose.torch.clone()
     root_pose[:, :3] += origins
@@ -376,8 +381,8 @@ def main() -> None:
         if args_cli.no_viewer
         else [
             NewtonVisualizerCfg(
-                eye=(3.0, -3.0, 2.0 + args_cli.gravel_depth),
-                lookat=(0.0, 0.0, 0.5 + args_cli.gravel_depth),
+                eye=(SPAWN_X + 0.5 * args_cli.gravel_size[0], -0.6 * args_cli.gravel_size[0], 2.0 + args_cli.gravel_depth),
+                lookat=(SPAWN_X, 0.0, 0.5 + args_cli.gravel_depth),
                 show_particles=True,
                 particle_color=PARTICLE_COLOR,
             )
@@ -402,8 +407,8 @@ def main() -> None:
     )
     sim = SimulationContext(sim_cfg)
     sim.set_camera_view(
-        eye=[3.0, -3.0, 2.0 + args_cli.gravel_depth],
-        target=[0.0, 0.0, 0.5 + args_cli.gravel_depth],
+        eye=[SPAWN_X + 0.5 * args_cli.gravel_size[0], -0.6 * args_cli.gravel_size[0], 2.0 + args_cli.gravel_depth],
+        target=[SPAWN_X, 0.0, 0.5 + args_cli.gravel_depth],
     )
 
     if args_cli.print_labels:
