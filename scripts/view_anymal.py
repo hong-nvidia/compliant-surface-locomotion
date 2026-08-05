@@ -297,6 +297,7 @@ def print_labels(_payload) -> None:
 
 
 def report(step: int, robot: Articulation, gravel: MPMObject) -> None:
+    return # Don't print anything for now
     """Print the robot base height, the foot heights, and the top of the gravel bed."""
     base_height = robot.data.root_pos_w.torch[:, 2].mean()
     foot_ids = [i for i, name in enumerate(robot.body_names) if name.endswith("FOOT")]
@@ -417,10 +418,6 @@ def main() -> None:
     robot, gravel = design_scene()
     sim.reset()
 
-    print(
-        f"[INFO]: ANYmal-C standing under joint-space PD control on"
-        f" {gravel.num_instances * gravel.particles_per_object} MPM gravel particles."
-    )
     report(0, robot, gravel)
     run_simulator(sim, robot, gravel)
 
