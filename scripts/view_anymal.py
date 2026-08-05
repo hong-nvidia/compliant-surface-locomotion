@@ -48,7 +48,7 @@ parser.add_argument(
     default=0,
     help="Stop after this many physics steps. 0 runs until the viewer is closed (or Ctrl-C).",
 )
-parser.add_argument("--gravel-depth", type=float, default=0.1, help="Thickness of the gravel bed [m].")
+parser.add_argument("--gravel-depth", type=float, default=0.2, help="Thickness of the gravel bed [m].")
 parser.add_argument(
     "--gravel-size",
     type=float,
@@ -66,12 +66,12 @@ parser.add_argument(
     help="MPM background grid. Only 'fixed' allows the coupled step to be CUDA-graph captured.",
 )
 parser.add_argument("--particles-per-cell", type=float, default=3.0, help="Particle density per MPM cell.")
-parser.add_argument("--young-modulus", type=float, default=1.0e15, help="Elastic modulus of the gravel [Pa].")
-parser.add_argument("--yield-stress", type=float, default=1.0e6, help="Deviatoric yield stress of the gravel [Pa].")
+parser.add_argument("--young-modulus", type=float, default=1.0e10, help="Elastic modulus of the gravel [Pa].")
+parser.add_argument("--yield-stress", type=float, default=3e4, help="Deviatoric yield stress of the gravel [Pa].")
 parser.add_argument(
-    "--yield-pressure", type=float, default=1.0e7, help="Compressive yield pressure of the gravel [Pa]."
+    "--yield-pressure", type=float, default=3e4, help="Compressive yield pressure of the gravel [Pa]."
 )
-parser.add_argument("--viscosity", type=float, default=1.0e4, help="Plastic viscosity of the gravel [Pa*s].")
+parser.add_argument("--viscosity", type=float, default=0, help="Plastic viscosity of the gravel [Pa*s].")
 parser.add_argument("--damping", type=float, default=0.02, help="Elastic damping relaxation time of the gravel [s].")
 parser.add_argument("--friction", type=float, default=0.8, help="Internal friction coefficient of the gravel.")
 parser.add_argument(
@@ -159,6 +159,7 @@ from isaaclab_assets.robots.anymal import ANYDRIVE_3_SIMPLE_ACTUATOR_CFG, ANYMAL
 PHYSICS_DT = args_cli.dt
 PARTICLE_COLOR = (0.55, 0.50, 0.45)
 FLOOR_THICKNESS = 0.1
+BORDER_THICKNESS = 0.05
 
 # Base height ANYmal-C spawns at over flat ground; the gravel bed raises it.
 FLAT_GROUND_BASE_HEIGHT = ANYMAL_C_CFG.init_state.pos[2]
@@ -193,7 +194,7 @@ else:
 
 
 def design_scene() -> tuple[Articulation, MPMObject]:
-    """Spawn a light, the floors, the gravel beds, and the ANYmal-C robots."""
+    """Spawn a light, the floors, gravel borders, gravel beds, and the ANYmal-C robots."""
     light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
     light_cfg.func("/World/Light", light_cfg)
 
@@ -219,6 +220,35 @@ def design_scene() -> tuple[Articulation, MPMObject]:
     )
     for i in range(args_cli.num_envs):
         floor_cfg.func(f"/World/Env_{i}/Floor", floor_cfg, translation=(0.0, 0.0, -0.5 * FLOOR_THICKNESS))
+
+    # Rigid walls around the bed so gravel particles cannot spill off the sides.
+    # Height matches the gravel depth; the inner faces sit flush with the bed extents.
+    # Like the floor, these shapes live on the robot coupler entry and are also picked
+    # up by the MPM solver as particle colliders.
+    border_material = sim_utils.NewtonMaterialPropertiesCfg(static_friction=0.9, dynamic_friction=0.9)
+    border_visual = sim_utils.PreviewSurfaceCfg(diffuse_color=(0.35, 0.35, 0.38))
+    border_collision = sim_utils.CollisionPropertiesCfg(collision_enabled=True)
+    wall_x_cfg = sim_utils.CuboidCfg(
+        size=(BORDER_THICKNESS, 2.0 * half_y + 2.0 * BORDER_THICKNESS, args_cli.gravel_depth),
+        collision_props=border_collision,
+        physics_material=border_material,
+        visual_material=border_visual,
+    )
+    wall_y_cfg = sim_utils.CuboidCfg(
+        size=(2.0 * half_x, BORDER_THICKNESS, args_cli.gravel_depth),
+        collision_props=border_collision,
+        physics_material=border_material,
+        visual_material=border_visual,
+    )
+    wall_z = 0.5 * args_cli.gravel_depth
+    wall_x_offset = half_x + 0.5 * BORDER_THICKNESS
+    wall_y_offset = half_y + 0.5 * BORDER_THICKNESS
+    for i in range(args_cli.num_envs):
+        env = f"/World/Env_{i}"
+        wall_x_cfg.func(f"{env}/BorderPosX", wall_x_cfg, translation=(wall_x_offset, 0.0, wall_z))
+        wall_x_cfg.func(f"{env}/BorderNegX", wall_x_cfg, translation=(-wall_x_offset, 0.0, wall_z))
+        wall_y_cfg.func(f"{env}/BorderPosY", wall_y_cfg, translation=(0.0, wall_y_offset, wall_z))
+        wall_y_cfg.func(f"{env}/BorderNegY", wall_y_cfg, translation=(0.0, -wall_y_offset, wall_z))
 
     gravel_cfg = MPMObjectCfg(
         prim_path="/World/Env_.*/Gravel",
