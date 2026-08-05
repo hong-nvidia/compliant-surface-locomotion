@@ -48,14 +48,14 @@ parser.add_argument(
     default=0,
     help="Stop after this many physics steps. 0 runs until the viewer is closed (or Ctrl-C).",
 )
-parser.add_argument("--gravel-depth", type=float, default=0.1, help="Thickness of the gravel bed [m].")
+parser.add_argument("--gravel-depth", type=float, default=0.05, help="Thickness of the gravel bed [m].")
 parser.add_argument(
     "--gravel-size",
     type=float,
     nargs=2,
-    default=(1.4, 0.9),
+    default=(3.0, 0.9),
     metavar=("X", "Y"),
-    help="Horizontal extent of the gravel bed [m].",
+    help="Horizontal extent of the gravel walkway [m] (length along X, width along Y).",
 )
 parser.add_argument("--voxel-size", type=float, default=0.03, help="MPM grid voxel size [m].")
 parser.add_argument(
@@ -66,12 +66,12 @@ parser.add_argument(
     help="MPM background grid. Only 'fixed' allows the coupled step to be CUDA-graph captured.",
 )
 parser.add_argument("--particles-per-cell", type=float, default=3.0, help="Particle density per MPM cell.")
-parser.add_argument("--young-modulus", type=float, default=1.0e15, help="Elastic modulus of the gravel [Pa].")
-parser.add_argument("--yield-stress", type=float, default=1.0e6, help="Deviatoric yield stress of the gravel [Pa].")
+parser.add_argument("--young-modulus", type=float, default=1.0e10, help="Elastic modulus of the gravel [Pa].")
+parser.add_argument("--yield-stress", type=float, default=3e4, help="Deviatoric yield stress of the gravel [Pa].")
 parser.add_argument(
-    "--yield-pressure", type=float, default=1.0e7, help="Compressive yield pressure of the gravel [Pa]."
+    "--yield-pressure", type=float, default=3e4, help="Compressive yield pressure of the gravel [Pa]."
 )
-parser.add_argument("--viscosity", type=float, default=1.0e4, help="Plastic viscosity of the gravel [Pa*s].")
+parser.add_argument("--viscosity", type=float, default=0, help="Plastic viscosity of the gravel [Pa*s].")
 parser.add_argument("--damping", type=float, default=0.02, help="Elastic damping relaxation time of the gravel [s].")
 parser.add_argument("--friction", type=float, default=0.8, help="Internal friction coefficient of the gravel.")
 parser.add_argument(
@@ -159,10 +159,16 @@ from isaaclab_assets.robots.anymal import ANYDRIVE_3_SIMPLE_ACTUATOR_CFG, ANYMAL
 PHYSICS_DT = args_cli.dt
 PARTICLE_COLOR = (0.55, 0.50, 0.45)
 FLOOR_THICKNESS = 0.1
+BORDER_THICKNESS = 0.05
+# Space parallel walkways so neighbouring floors and borders do not overlap.
+ENV_SPACING = args_cli.gravel_size[0] + 1.0
 
 # Base height ANYmal-C spawns at over flat ground; the gravel bed raises it.
 FLAT_GROUND_BASE_HEIGHT = ANYMAL_C_CFG.init_state.pos[2]
 SPAWN_HEIGHT = FLAT_GROUND_BASE_HEIGHT + args_cli.gravel_depth + args_cli.spawn_clearance
+# Place the robot near the -X end of the walkway, clear of the rear wall, facing +X.
+WALKWAY_SPAWN_CLEARANCE = 0.6
+SPAWN_X = -0.5 * args_cli.gravel_size[0] + WALKWAY_SPAWN_CLEARANCE
 
 # The analytic ANYdrive model replaces the LSTM actuator net of ANYMAL_C_CFG: a plain
 # PD-with-torque-limit controller, which is what a conventional (non-learned) stack uses.
@@ -193,12 +199,12 @@ else:
 
 
 def design_scene() -> tuple[Articulation, MPMObject]:
-    """Spawn a light, the floors, the gravel beds, and the ANYmal-C robots."""
+    """Spawn a light, the floors, gravel borders, gravel beds, and the ANYmal-C robots."""
     light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
     light_cfg.func("/World/Light", light_cfg)
 
     for i in range(args_cli.num_envs):
-        sim_utils.create_prim(f"/World/Env_{i}", "Xform", translation=(i * 2.0, 0.0, 0.0))
+        sim_utils.create_prim(f"/World/Env_{i}", "Xform", translation=(i * ENV_SPACING, 0.0, 0.0))
 
     half_x, half_y = 0.5 * args_cli.gravel_size[0], 0.5 * args_cli.gravel_size[1]
 
@@ -219,6 +225,35 @@ def design_scene() -> tuple[Articulation, MPMObject]:
     )
     for i in range(args_cli.num_envs):
         floor_cfg.func(f"/World/Env_{i}/Floor", floor_cfg, translation=(0.0, 0.0, -0.5 * FLOOR_THICKNESS))
+
+    # Rigid walls around the bed so gravel particles cannot spill off the sides.
+    # Height matches the gravel depth; the inner faces sit flush with the bed extents.
+    # Like the floor, these shapes live on the robot coupler entry and are also picked
+    # up by the MPM solver as particle colliders.
+    border_material = sim_utils.NewtonMaterialPropertiesCfg(static_friction=0.9, dynamic_friction=0.9)
+    border_visual = sim_utils.PreviewSurfaceCfg(diffuse_color=(0.35, 0.35, 0.38))
+    border_collision = sim_utils.CollisionPropertiesCfg(collision_enabled=True)
+    wall_x_cfg = sim_utils.CuboidCfg(
+        size=(BORDER_THICKNESS, 2.0 * half_y + 2.0 * BORDER_THICKNESS, args_cli.gravel_depth),
+        collision_props=border_collision,
+        physics_material=border_material,
+        visual_material=border_visual,
+    )
+    wall_y_cfg = sim_utils.CuboidCfg(
+        size=(2.0 * half_x, BORDER_THICKNESS, args_cli.gravel_depth),
+        collision_props=border_collision,
+        physics_material=border_material,
+        visual_material=border_visual,
+    )
+    wall_z = 0.5 * args_cli.gravel_depth
+    wall_x_offset = half_x + 0.5 * BORDER_THICKNESS
+    wall_y_offset = half_y + 0.5 * BORDER_THICKNESS
+    for i in range(args_cli.num_envs):
+        env = f"/World/Env_{i}"
+        wall_x_cfg.func(f"{env}/BorderPosX", wall_x_cfg, translation=(wall_x_offset, 0.0, wall_z))
+        wall_x_cfg.func(f"{env}/BorderNegX", wall_x_cfg, translation=(-wall_x_offset, 0.0, wall_z))
+        wall_y_cfg.func(f"{env}/BorderPosY", wall_y_cfg, translation=(0.0, wall_y_offset, wall_z))
+        wall_y_cfg.func(f"{env}/BorderNegY", wall_y_cfg, translation=(0.0, -wall_y_offset, wall_z))
 
     gravel_cfg = MPMObjectCfg(
         prim_path="/World/Env_.*/Gravel",
@@ -243,7 +278,7 @@ def design_scene() -> tuple[Articulation, MPMObject]:
     robot_cfg = ANYMAL_C_CFG.replace(
         prim_path="/World/Env_.*/Robot",
         actuators={"legs": STAND_ACTUATOR_CFG},
-        init_state=ANYMAL_C_CFG.init_state.replace(pos=(0.0, 0.0, SPAWN_HEIGHT)),
+        init_state=ANYMAL_C_CFG.init_state.replace(pos=(SPAWN_X, 0.0, SPAWN_HEIGHT)),
     )
     return Articulation(robot_cfg), MPMObject(gravel_cfg)
 
@@ -262,6 +297,7 @@ def print_labels(_payload) -> None:
 
 
 def report(step: int, robot: Articulation, gravel: MPMObject) -> None:
+    return # Don't print anything for now
     """Print the robot base height, the foot heights, and the top of the gravel bed."""
     base_height = robot.data.root_pos_w.torch[:, 2].mean()
     foot_ids = [i for i, name in enumerate(robot.body_names) if name.endswith("FOOT")]
@@ -278,6 +314,32 @@ def report(step: int, robot: Articulation, gravel: MPMObject) -> None:
     )
 
 
+def reset_episode(robot: Articulation, gravel: MPMObject) -> None:
+    """Restore the robot and gravel to their spawn state (viewer Reset Episode).
+
+    ``sim.reset()`` reinitializes the solvers and is the wrong lever here: the OpenGL
+    button only sets a flag, and Isaac Lab RL envs consume it by rewriting asset state.
+    Env origins match the ``Env_{i}`` Xforms in :func:`design_scene`.
+    """
+    origins = torch.zeros((robot.num_instances, 3), device=robot.device)
+    origins[:, 0] = torch.arange(robot.num_instances, device=robot.device, dtype=origins.dtype) * ENV_SPACING
+
+    root_pose = robot.data.default_root_pose.torch.clone()
+    root_pose[:, :3] += origins
+    robot.write_root_pose_to_sim_index(root_pose=root_pose)
+    robot.write_root_velocity_to_sim_index(root_velocity=robot.data.default_root_vel.torch.clone())
+
+    joint_pos = robot.data.default_joint_pos.torch.clone()
+    joint_vel = robot.data.default_joint_vel.torch.clone()
+    robot.write_joint_position_to_sim_index(position=joint_pos)
+    robot.write_joint_velocity_to_sim_index(velocity=joint_vel)
+    robot.set_joint_position_target_index(target=joint_pos)
+    robot.set_joint_velocity_target_index(target=joint_vel)
+    robot.reset()
+
+    gravel.reset()
+
+
 def run_simulator(sim: SimulationContext, robot: Articulation, gravel: MPMObject) -> None:
     """Hold the default standing pose for as long as the viewer (or step budget) lasts."""
     stand_pose = robot.data.default_joint_pos.torch.clone()
@@ -289,6 +351,14 @@ def run_simulator(sim: SimulationContext, robot: Articulation, gravel: MPMObject
             break
         if sim.visualizers and not any(viz.is_running() and not viz.is_closed for viz in sim.visualizers):
             break
+
+        if sim.consume_reset_request():
+            reset_episode(robot, gravel)
+            robot.update(PHYSICS_DT)
+            gravel.update(PHYSICS_DT)
+            step = 0
+            print("[INFO]: Episode reset from viewer.")
+            report(0, robot, gravel)
 
         if not args_cli.passive:
             robot.set_joint_position_target_index(target=stand_pose)
@@ -312,8 +382,8 @@ def main() -> None:
         if args_cli.no_viewer
         else [
             NewtonVisualizerCfg(
-                eye=(3.0, -3.0, 2.0 + args_cli.gravel_depth),
-                lookat=(0.0, 0.0, 0.5 + args_cli.gravel_depth),
+                eye=(SPAWN_X + 0.5 * args_cli.gravel_size[0], -0.6 * args_cli.gravel_size[0], 2.0 + args_cli.gravel_depth),
+                lookat=(SPAWN_X, 0.0, 0.5 + args_cli.gravel_depth),
                 show_particles=True,
                 particle_color=PARTICLE_COLOR,
             )
@@ -338,8 +408,8 @@ def main() -> None:
     )
     sim = SimulationContext(sim_cfg)
     sim.set_camera_view(
-        eye=[3.0, -3.0, 2.0 + args_cli.gravel_depth],
-        target=[0.0, 0.0, 0.5 + args_cli.gravel_depth],
+        eye=[SPAWN_X + 0.5 * args_cli.gravel_size[0], -0.6 * args_cli.gravel_size[0], 2.0 + args_cli.gravel_depth],
+        target=[SPAWN_X, 0.0, 0.5 + args_cli.gravel_depth],
     )
 
     if args_cli.print_labels:
@@ -348,10 +418,6 @@ def main() -> None:
     robot, gravel = design_scene()
     sim.reset()
 
-    print(
-        f"[INFO]: ANYmal-C standing under joint-space PD control on"
-        f" {gravel.num_instances * gravel.particles_per_object} MPM gravel particles."
-    )
     report(0, robot, gravel)
     run_simulator(sim, robot, gravel)
 
