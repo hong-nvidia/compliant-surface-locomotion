@@ -70,4 +70,28 @@ uv run python scripts/view_anymal.py
 
 # Headless smoke run that prints base height, foot heights, and the gravel surface
 uv run python scripts/view_anymal.py --no-viewer --steps 400
+
+# Train ANYmal-C to cross the gravel walkway and stop at the green finish stripe
+uv run python scripts/train_anymal.py
+
+# Inspect Newton's rigid-floor policy in the two-way gravel environment
+uv run python scripts/view_anymal_policy.py --pretrained
+
+# Fine-tune that walking policy on gravel for 5,000 PPO iterations
+uv run python scripts/train_anymal.py --initialize-from-pretrained --max-iterations 5000 --num-steps-per-env 96 --run-name rigid_to_gravel
+
+# View the newest trained checkpoint (or pass --checkpoint explicitly)
+uv run python scripts/view_anymal_policy.py
 ```
+
+Training uses Isaac Lab's direct RL workflow with RSL-RL PPO. Runs, TensorBoard
+logs, task settings, and checkpoints are saved under
+`logs/rsl_rl/anymal_gravel/<timestamp>`. Each MPM pavement contains roughly
+192,000 particles with the defaults, so start with the default eight parallel
+environments and raise `--num-envs` only if GPU memory allows it.
+
+Transfer runs use the pretrained policy's exact 48-value observation layout,
+joint/action ordering, 128-by-128-by-128 actor, 0.5 action scale, and controller
+gains. The critic starts fresh, actor exploration starts at 0.25 standard
+deviation, and PPO uses a reduced `1e-4` learning rate. Playback prints the
+terminal cause, distance, base height, and upright metric after every episode.

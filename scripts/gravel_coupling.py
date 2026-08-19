@@ -145,6 +145,7 @@ def gravel_physics_cfg(
     voxel_size: float,
     num_substeps: int = 1,
     rigid_bodies: str = ROBOT_BODY_PATTERN,
+    rigid_shapes: str = FLOOR_SHAPE_PATTERN,
     proxy_bodies: str = FOOT_BODY_PATTERN,
     proxy_mode: str = "lagged",
     mass_scale: float = 1.0,
@@ -181,7 +182,7 @@ def gravel_physics_cfg(
                     use_mujoco_contacts=mujoco_contacts,
                 ),
                 bodies=[rigid_bodies],
-                shape_label_patterns=[FLOOR_SHAPE_PATTERN],
+                shape_label_patterns=[rigid_shapes],
                 substeps=rigid_substeps,
             ),
             CouplerEntryCfg(
