@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train ANYmal-C to cross an MPM gravel pavement and stop at its end.
+"""Fine-tune Newton's pretrained ANYmal-C policy on an MPM gravel pavement.
 
 This is a kit-less Isaac Lab direct-workflow task using the Newton backend and
 RSL-RL PPO.  The gravel/robot interaction reuses ``gravel_coupling.py``.
@@ -111,7 +111,6 @@ class AnymalGravelEnvCfg(DirectRLEnvCfg):
     goal_x = 0.5 * DEFAULT_GRAVEL_LENGTH - 0.40
     reset_joint_noise = 0.05
     reset_position_noise = 0.03
-    pretrained_policy_interface = False
 
 
 @configclass
@@ -125,10 +124,10 @@ class AnymalGravelPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     clip_actions = 1.0
     obs_groups = {"actor": ["policy"], "critic": ["policy"]}
     actor = RslRlMLPModelCfg(
-        hidden_dims=[256, 256, 128],
+        hidden_dims=[128, 128, 128],
         activation="elu",
-        obs_normalization=True,
-        distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(init_std=1.0),
+        obs_normalization=False,
+        distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(init_std=0.25),
     )
     critic = RslRlMLPModelCfg(
         hidden_dims=[256, 256, 128],
@@ -142,7 +141,7 @@ class AnymalGravelPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         entropy_coef=0.005,
         num_learning_epochs=5,
         num_mini_batches=4,
-        learning_rate=1.0e-3,
+        learning_rate=1.0e-4,
         schedule="adaptive",
         gamma=0.99,
         lam=0.95,
@@ -189,7 +188,6 @@ def make_env_cfg(
     episode_length_s: float = 12.0,
     viewer: bool = False,
     reset_noise: bool = True,
-    pretrained_policy_interface: bool = False,
 ) -> AnymalGravelEnvCfg:
     """Build a complete scene/task config for training or playback."""
     if num_envs < 1:
@@ -212,7 +210,6 @@ def make_env_cfg(
     cfg.max_forward_speed = max_forward_speed
     cfg.reset_joint_noise = 0.05 if reset_noise else 0.0
     cfg.reset_position_noise = 0.03 if reset_noise else 0.0
-    cfg.pretrained_policy_interface = pretrained_policy_interface
 
     visualizer_cfgs = []
     if viewer:
@@ -250,9 +247,8 @@ def make_env_cfg(
 
     actuator_cfg = ImplicitActuatorCfg(
         joint_names_expr=[".*HAA", ".*HFE", ".*KFE"],
-        # Match the controller used to train Newton's rigid-floor policy when
-        # transferring it. The scratch task keeps its original gain.
-        stiffness={".*": 150.0 if pretrained_policy_interface else 40.0},
+        # Match the controller used to train Newton's rigid-floor policy.
+        stiffness={".*": 150.0},
         damping={".*": 5.0},
         armature={".*": 0.06},
     )
@@ -425,11 +421,7 @@ class AnymalGravelEnv(DirectRLEnv):
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         self._actions = torch.clamp(actions, -1.0, 1.0)
-        actions_env_order = (
-            self._actions[:, self._env_to_policy]
-            if self.cfg.pretrained_policy_interface
-            else self._actions
-        )
+        actions_env_order = self._actions[:, self._env_to_policy]
         self._processed_actions = (
             self._robot.data.default_joint_pos.torch + self.cfg.action_scale * actions_env_order
         )
@@ -438,38 +430,18 @@ class AnymalGravelEnv(DirectRLEnv):
         self._robot.set_joint_position_target_index(target=self._processed_actions)
 
     def _get_observations(self) -> dict[str, torch.Tensor]:
-        if self.cfg.pretrained_policy_interface:
-            joint_pos_delta = (
-                self._robot.data.joint_pos.torch - self._robot.data.default_joint_pos.torch
-            )[:, self._policy_to_env]
-            joint_vel = self._robot.data.joint_vel.torch[:, self._policy_to_env]
-            obs = torch.cat(
-                (
-                    self._robot.data.root_lin_vel_b.torch,
-                    self._robot.data.root_ang_vel_b.torch,
-                    self._robot.data.projected_gravity_b.torch,
-                    self._velocity_command(),
-                    joint_pos_delta,
-                    joint_vel,
-                    self._actions,
-                ),
-                dim=-1,
-            )
-            self._previous_actions = self._actions.clone()
-            return {"policy": obs}
-
-        remaining_x, _, goal_b = self._goal_state()
-        target_speed = self._target_speed(remaining_x)
-        goal_scale = max(self.cfg.gravel_length, 1.0)
+        joint_pos_delta = (
+            self._robot.data.joint_pos.torch - self._robot.data.default_joint_pos.torch
+        )[:, self._policy_to_env]
+        joint_vel = self._robot.data.joint_vel.torch[:, self._policy_to_env]
         obs = torch.cat(
             (
                 self._robot.data.root_lin_vel_b.torch,
                 self._robot.data.root_ang_vel_b.torch,
                 self._robot.data.projected_gravity_b.torch,
-                torch.clamp(goal_b[:, :2] / goal_scale, -1.0, 1.0),
-                target_speed.unsqueeze(-1),
-                self._robot.data.joint_pos.torch - self._robot.data.default_joint_pos.torch,
-                0.10 * self._robot.data.joint_vel.torch,
+                self._velocity_command(),
+                joint_pos_delta,
+                joint_vel,
                 self._actions,
             ),
             dim=-1,
@@ -652,7 +624,6 @@ def make_agent_cfg(
     max_iterations: int = 10000,
     save_interval: int = 50,
     num_steps_per_env: int = 96,
-    pretrained_compatible: bool = False,
 ):
     """Return the version-normalized PPO config used to create an RSL-RL runner."""
     cfg = AnymalGravelPPORunnerCfg()
@@ -660,11 +631,6 @@ def make_agent_cfg(
     cfg.max_iterations = max_iterations
     cfg.save_interval = save_interval
     cfg.num_steps_per_env = num_steps_per_env
-    if pretrained_compatible:
-        cfg.actor.hidden_dims = [128, 128, 128]
-        cfg.actor.obs_normalization = False
-        cfg.actor.distribution_cfg.init_std = 0.25
-        cfg.algorithm.learning_rate = 1.0e-4
     return handle_deprecated_rsl_rl_cfg(cfg, importlib.metadata.version("rsl-rl-lib"))
 
 
@@ -732,15 +698,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-root", default="logs/rsl_rl/anymal_gravel", help="Root checkpoint directory.")
     parser.add_argument("--resume", type=Path, default=None, help="Checkpoint to resume from.")
     parser.add_argument(
-        "--initialize-from-pretrained",
-        action="store_true",
-        help="Initialize PPO's actor from Newton's rigid-floor ANYmal-C policy.",
-    )
-    parser.add_argument(
         "--pretrained-policy",
         type=Path,
         default=None,
-        help="Override the rigid-floor TorchScript policy path.",
+        help="Override the rigid-floor TorchScript policy used for a fresh run.",
     )
     parser.add_argument("--gravel-length", type=float, default=DEFAULT_GRAVEL_LENGTH, help="Pavement length [m].")
     parser.add_argument("--gravel-width", type=float, default=DEFAULT_GRAVEL_WIDTH, help="Pavement width [m].")
@@ -762,10 +723,11 @@ def main() -> None:
     torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = False
 
-    if args.resume is not None and args.initialize_from_pretrained:
-        raise ValueError("--resume and --initialize-from-pretrained are mutually exclusive.")
-    if args.pretrained_policy is not None and not args.initialize_from_pretrained:
-        raise ValueError("--pretrained-policy requires --initialize-from-pretrained.")
+    if args.resume is not None and args.pretrained_policy is not None:
+        raise ValueError("--pretrained-policy only applies to a fresh run, not --resume.")
+    checkpoint = args.resume.expanduser().resolve() if args.resume is not None else None
+    if checkpoint is not None and not checkpoint.is_file():
+        raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint}")
     env_cfg = make_env_cfg(
         num_envs=args.num_envs,
         device=args.device,
@@ -781,7 +743,6 @@ def main() -> None:
         episode_length_s=args.episode_length,
         viewer=False,
         reset_noise=True,
-        pretrained_policy_interface=args.initialize_from_pretrained,
     )
     env_cfg.seed = args.seed
     agent_cfg = make_agent_cfg(
@@ -789,7 +750,6 @@ def main() -> None:
         max_iterations=args.max_iterations,
         save_interval=args.save_interval,
         num_steps_per_env=args.num_steps_per_env,
-        pretrained_compatible=args.initialize_from_pretrained,
     )
     agent_cfg.seed = args.seed
     agent_cfg.run_name = args.run_name
@@ -812,18 +772,14 @@ def main() -> None:
     env = RslRlVecEnvWrapper(raw_env, clip_actions=agent_cfg.clip_actions)
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=str(log_dir), device=agent_cfg.device)
     runner.add_git_repo_to_log(__file__)
-    if args.initialize_from_pretrained:
+    if checkpoint is None:
         policy_path = resolve_pretrained_policy(args.pretrained_policy)
         parity_error = initialize_actor_from_pretrained(runner, policy_path)
         print(
             f"[INFO]: Initialized PPO actor from {policy_path} "
             f"(maximum output error {parity_error:.2e})"
         )
-    if args.resume is not None:
-        checkpoint = args.resume.expanduser().resolve()
-        if not checkpoint.is_file():
-            env.close()
-            raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint}")
+    else:
         print(f"[INFO]: Resuming from {checkpoint}")
         runner.load(str(checkpoint))
 

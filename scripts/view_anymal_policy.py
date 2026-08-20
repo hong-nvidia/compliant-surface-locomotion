@@ -124,7 +124,6 @@ def main() -> None:
         if not checkpoint.is_file():
             raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint}")
         saved = _load_task_args(checkpoint)
-    pretrained_interface = args.pretrained or bool(saved.get("initialize_from_pretrained", False))
     env_cfg = make_env_cfg(
         num_envs=1,
         device=args.device,
@@ -140,10 +139,9 @@ def main() -> None:
         episode_length_s=float(_saved_or_cli(args, saved, "episode_length", 12.0)),
         viewer=not args.no_viewer,
         reset_noise=False,
-        pretrained_policy_interface=pretrained_interface,
     )
     env_cfg.seed = int(saved.get("seed", 42))
-    agent_cfg = make_agent_cfg(device=args.device, pretrained_compatible=pretrained_interface)
+    agent_cfg = make_agent_cfg(device=args.device)
 
     raw_env = AnymalGravelEnv(cfg=env_cfg)
     env = RslRlVecEnvWrapper(raw_env, clip_actions=agent_cfg.clip_actions)
