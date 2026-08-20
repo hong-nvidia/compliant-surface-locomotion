@@ -458,7 +458,8 @@ class AnymalGravelEnv(DirectRLEnv):
         world_progress = 12.0 * delta_x
 
         upright = -projected_gravity[:, 2]
-        orientation_error = torch.square(1.0 - torch.clamp(upright, -1.0, 1.0))
+        # sin²(tilt) stays sensitive near upright; (1 - cos(tilt))² did not.
+        tilt_error = torch.sum(torch.square(projected_gravity[:, :2]), dim=1)
         in_goal_region = (torch.abs(remaining_x) < 0.25) & (
             torch.abs(lateral_error) < self.cfg.goal_lateral_tolerance
         )
@@ -473,7 +474,7 @@ class AnymalGravelEnv(DirectRLEnv):
         rewards = {
             "world_progress": world_progress,
             "velocity_error": -1.0 * velocity_error * self.step_dt,
-            "orientation_error": -1.0 * orientation_error * self.step_dt,
+            "orientation_error": -2.0 * tilt_error * self.step_dt,
             "goal_stop": goal_stop,
             "lateral_error": -0.6 * torch.square(lateral_error) * self.step_dt,
             "heading_error": -0.3 * torch.square(goal_b[:, 1] / goal_norm) * self.step_dt,
