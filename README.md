@@ -87,8 +87,9 @@ uv run python scripts/view_anymal_policy.py
 Training uses Isaac Lab's direct RL workflow with RSL-RL PPO. Runs, TensorBoard
 logs, task settings, and checkpoints are saved under
 `logs/rsl_rl/anymal_gravel/<timestamp>`. Each MPM pavement contains roughly
-192,000 particles with the defaults, so start with the default eight parallel
-environments and raise `--num-envs` only if GPU memory allows it.
+320,000 particles at the default 1.5 m walkway width, so start with the default
+eight parallel environments and raise `--num-envs` only if GPU memory allows
+it.
 
 Training always starts from Newton's pretrained rigid-floor actor and uses its
 exact 48-value observation layout, joint/action ordering, 128-by-128-by-128

@@ -55,7 +55,7 @@ FLOOR_THICKNESS = 0.10
 BORDER_THICKNESS = 0.05
 SPAWN_CLEARANCE_X = 0.60
 DEFAULT_GRAVEL_LENGTH = 3.0
-DEFAULT_GRAVEL_WIDTH = 0.9
+DEFAULT_GRAVEL_WIDTH = 1.5
 DEFAULT_GRAVEL_DEPTH = 0.05
 DEFAULT_VOXEL_SIZE = 0.03
 PRETRAINED_POLICY_FILENAME = "anymal_walking_policy_physx.pt"
@@ -311,16 +311,6 @@ def make_env_cfg(
         (gravel_length, BORDER_THICKNESS, gravel_depth),
         (0.0, -half_y - 0.5 * BORDER_THICKNESS, wall_z),
         (0.35, 0.35, 0.38),
-    )
-
-    # A thin, non-colliding green stripe makes the stopping point obvious in playback.
-    scene.goal_marker = AssetBaseCfg(
-        prim_path="{ENV_REGEX_NS}/GoalMarker",
-        spawn=sim_utils.CuboidCfg(
-            size=(0.035, gravel_width, 0.008),
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.8, 0.2)),
-        ),
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(cfg.goal_x, 0.0, gravel_depth + 0.004)),
     )
     scene.light = AssetBaseCfg(
         prim_path="/World/Light",
