@@ -30,6 +30,7 @@ of executable scripts, with Isaac Lab installed separately into the repository's
 | [`scripts/gravel_coupling.py`](../scripts/gravel_coupling.py) | Shared rigid-body/MPM physics configuration and Isaac Lab coupling fixes. |
 | [`scripts/train_anymal.py`](../scripts/train_anymal.py) | Direct Isaac Lab environment, task, rewards, PPO configuration, rigid-policy transfer, and training entry point. |
 | [`scripts/view_anymal_policy.py`](../scripts/view_anymal_policy.py) | Playback of either Newton's original rigid-floor policy or a trained RSL-RL checkpoint. |
+| [`policies/anymal_gravel/`](../policies/anymal_gravel/) | Git LFS checkpoint used by default playback, saved task arguments, and model provenance. |
 | [`scripts/view_anymal.py`](../scripts/view_anymal.py) | Lower-level standing/physics diagnostic with many coupling controls exposed. |
 | [`scripts/verify_isaaclab.py`](../scripts/verify_isaaclab.py) | Import smoke test for the separately installed Isaac Lab components. |
 
@@ -359,25 +360,30 @@ Short windows can consequently look sparse or noisy. Reward-component plots are
 rates, and larger is better even for penalty tags: an orientation error rising
 toward zero means the robot is becoming more upright.
 
-`view_anymal_policy.py` uses one environment and supports three useful modes:
+`view_anymal_policy.py` uses one environment and supports four policy sources:
 
 ```bash
+# View the trained checkpoint bundled with the repository (the default).
+uv run python scripts/view_anymal_policy.py
+
+# View the newest checkpoint in local training logs.
+uv run python scripts/view_anymal_policy.py --latest
+
 # Inspect the source rigid-floor policy directly on gravel.
 uv run python scripts/view_anymal_policy.py --pretrained
 
-# View the newest saved trained checkpoint.
-uv run python scripts/view_anymal_policy.py
-
-# Reproducibly select a particular checkpoint.
+# Reproducibly select another checkpoint.
 uv run python scripts/view_anymal_policy.py \
   --checkpoint logs/rsl_rl/anymal_gravel/RUN/model_4999.pt
 ```
 
-For a trained checkpoint, playback reads `task_args.yaml` beside the model and
-recreates its pavement geometry and timing unless an explicit CLI override is
-given. Direct `--pretrained` playback has no saved task file and uses current
-defaults. At each episode end, playback prints termination cause, success,
-distance, goal error, base height, and upright value.
+The bundled checkpoint is stored with Git LFS under
+`policies/anymal_gravel/model.pt`; run `git lfs pull` if its binary data was not
+fetched with the clone. For a trained checkpoint, playback reads `task_args.yaml`
+beside the model and recreates its pavement geometry and timing unless an
+explicit CLI override is given. Direct `--pretrained` playback has no saved task
+file and uses current defaults. At each episode end, playback prints termination
+cause, success, distance, goal error, base height, and upright value.
 
 ## 6. Recommended workflow
 
@@ -526,9 +532,9 @@ discourage a dramatic gait close to nominal orientation.
    `--resume` is used. If a run used nondefault geometry, timing, particle, or
    speed settings, repeat those options when resuming.
 
-10. **The newest-checkpoint heuristic is convenient, not canonical.** Playback
-    prioritizes recent run/file modification times. Use `--checkpoint` for a
-    reproducible evaluation.
+10. **The `--latest` checkpoint heuristic is convenient, not canonical.** It
+    prioritizes recent run/file modification times. The bundled policy or an
+    explicit `--checkpoint` path provides reproducible selection.
 
 11. **There is no automated behavioral test suite.** `verify_isaaclab.py` checks
     imports only. Headless standing, transfer initialization, checkpoint loading,
