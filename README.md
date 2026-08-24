@@ -1,11 +1,6 @@
 # Compliant Surface Locomotion
 
-Research code and training scripts built on top of
-[Isaac Lab](https://github.com/isaac-sim/IsaacLab) (kit-less / Newton backend).
-
-This repo is a [uv](https://docs.astral.sh/uv/) project (Python 3.12). Isaac Lab
-itself is **not** a locked dependency here — clone and install it into this
-project’s `.venv` separately.
+See [report](./docs/report.md) for an overview of the repo.
 
 ## Requirements
 
@@ -60,7 +55,7 @@ uv run python scripts/verify_isaaclab.py
 
 You should see `OK` lines for `isaaclab`, `isaaclab_newton`, and `isaaclab_rl`.
 
-## Day-to-day usage
+## Usage
 
 ```bash
 uv run python scripts/verify_isaaclab.py
