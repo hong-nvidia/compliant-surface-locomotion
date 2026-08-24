@@ -75,9 +75,15 @@ uv run python scripts/train_anymal.py --max-iterations 5000 --num-steps-per-env 
 # Continue a transfer run for 1,000 additional PPO iterations
 uv run python scripts/train_anymal.py --resume logs/rsl_rl/anymal_gravel/RUN_DIRECTORY/model_4999.pt --max-iterations 1000 --run-name rigid_to_gravel_resume
 
-# View the newest trained checkpoint (or pass --checkpoint explicitly)
+# View the trained policy bundled with this repository
 uv run python scripts/view_anymal_policy.py
+
+# Or view the newest checkpoint in your local training logs
+uv run python scripts/view_anymal_policy.py --latest
 ```
+
+The default viewer policy is stored with Git LFS. A normal LFS-enabled clone
+fetches it automatically; otherwise run `git lfs pull` before playback.
 
 Training uses Isaac Lab's direct RL workflow with RSL-RL PPO. Runs, TensorBoard
 logs, task settings, and checkpoints are saved under

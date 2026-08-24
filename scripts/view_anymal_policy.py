@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """View a policy trained by ``train_anymal.py`` in the Newton viewer.
 
-With no checkpoint argument, the newest checkpoint under
-``logs/rsl_rl/anymal_gravel`` is selected automatically::
+With no policy-source argument, the trained checkpoint bundled with this
+repository is loaded::
 
     uv run python scripts/view_anymal_policy.py
     uv run python scripts/view_anymal_policy.py --checkpoint path/to/model_1500.pt
+    uv run python scripts/view_anymal_policy.py --latest
 """
 
 from __future__ import annotations
@@ -32,6 +33,8 @@ from train_anymal import (
 )
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_CHECKPOINT = PROJECT_ROOT / "policies" / "anymal_gravel" / "model.pt"
 DEFAULT_LOG_ROOT = Path("logs/rsl_rl/anymal_gravel")
 
 
@@ -64,6 +67,19 @@ def _load_task_args(checkpoint: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _validate_checkpoint(checkpoint: Path) -> None:
+    """Fail with an actionable message for a missing model or unpulled LFS object."""
+    if not checkpoint.is_file():
+        raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint}")
+    with checkpoint.open("rb") as stream:
+        header = stream.read(64)
+    if header.startswith(b"version https://git-lfs.github.com/spec/v1"):
+        raise RuntimeError(
+            f"Checkpoint data has not been downloaded: {checkpoint}. "
+            "Install Git LFS and run `git lfs pull`."
+        )
+
+
 def _saved_or_cli(args: argparse.Namespace, saved: dict[str, Any], name: str, fallback: Any) -> Any:
     cli_value = getattr(args, name)
     if cli_value is not None:
@@ -73,11 +89,17 @@ def _saved_or_cli(args: argparse.Namespace, saved: dict[str, Any], name: str, fa
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--checkpoint", type=Path, default=None, help="RSL-RL model checkpoint.")
-    parser.add_argument(
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--checkpoint", type=Path, default=None, help="Override the RSL-RL checkpoint.")
+    source.add_argument(
         "--pretrained",
         action="store_true",
         help="Play Newton's rigid-floor policy directly instead of an RSL-RL checkpoint.",
+    )
+    source.add_argument(
+        "--latest",
+        action="store_true",
+        help="Load the newest checkpoint below --log-root instead of the bundled policy.",
     )
     parser.add_argument(
         "--pretrained-policy",
@@ -85,7 +107,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the rigid-floor TorchScript policy path.",
     )
-    parser.add_argument("--log-root", type=Path, default=DEFAULT_LOG_ROOT, help="Root used for auto-selection.")
+    parser.add_argument("--log-root", type=Path, default=DEFAULT_LOG_ROOT, help="Root searched by --latest.")
     parser.add_argument("--device", default="cuda:0", help="Simulation and inference device.")
     parser.add_argument("--steps", type=int, default=0, help="Stop after N policy steps; 0 runs until close.")
     parser.add_argument(
@@ -109,20 +131,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_arg_parser().parse_args()
-    if args.pretrained and args.checkpoint is not None:
-        raise ValueError("--pretrained and --checkpoint are mutually exclusive.")
     if args.pretrained_policy is not None and not args.pretrained:
         raise ValueError("--pretrained-policy requires --pretrained.")
     checkpoint = None
     saved: dict[str, Any] = {}
     if not args.pretrained:
-        checkpoint = (
-            args.checkpoint.expanduser().resolve()
-            if args.checkpoint is not None
-            else find_latest_checkpoint(args.log_root)
-        )
-        if not checkpoint.is_file():
-            raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint}")
+        if args.checkpoint is not None:
+            checkpoint = args.checkpoint.expanduser().resolve()
+        elif args.latest:
+            checkpoint = find_latest_checkpoint(args.log_root)
+        else:
+            checkpoint = DEFAULT_CHECKPOINT
+        _validate_checkpoint(checkpoint)
         saved = _load_task_args(checkpoint)
     env_cfg = make_env_cfg(
         num_envs=1,
